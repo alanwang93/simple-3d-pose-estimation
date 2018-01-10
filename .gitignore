@@ -3,6 +3,7 @@
 *.DS_Store
 *.zip
 data/
+experiments/
 stacked_hourglass/pre_trained/
 
 
