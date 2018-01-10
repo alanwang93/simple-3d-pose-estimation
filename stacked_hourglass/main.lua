@@ -6,7 +6,10 @@ paths.dofile('img.lua')
 -- Initialization
 --------------------------------------------------------------------------------
 
-if arg[1] == 'demo' or arg[1] == 'predict-test' then
+if arg[1] == 'mytest' then
+    a = loadAnnotations('mytest')
+
+elseif arg[1] == 'demo' or arg[1] == 'predict-test' then
     -- Test set annotations do not have ground truth part locations, but provide
     -- information about the location and scale of people in each image.
     a = loadAnnotations('test')
@@ -51,7 +54,7 @@ end
 --------------------------------------------------------------------------------
 -- Main loop
 --------------------------------------------------------------------------------
-
+-- Only 3 attributes are used: images, center, scale
 for i = 1,nsamples do
     -- Set up input image
     local im = image.load('images/' .. a['images'][idxs[i]])
@@ -97,6 +100,11 @@ elseif arg[1] == 'demo' then
     predFile:write('preds', preds)
     predFile:close()
     -- w.window:close()
+elseif arg[1] == 'mytest' then
+    local predFile = hdf5.open('preds/mytest.h5', 'w')
+    predFile:write('preds', preds)
+    predFile:write('images', a.images)
+    predFile:close()
 end
 
 --------------------------------------------------------------------------------
