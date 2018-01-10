@@ -42,7 +42,7 @@ def main(args):
     # tags = ['part','center','scale','normalize','torsoangle','visible']
     part = h5.create_dataset("part", (n,16,2), dtype='i8')
     center = h5.create_dataset("center", (n,2), dtype='f8')
-    scale = h5.create_dataset("scale", (n,2), dtype='f8')
+    scale = h5.create_dataset("scale", (n,), dtype='f8')
     imgname = h5.create_dataset("imgname", (n,), dtype='S13')
     index = h5.create_dataset("index", (n,), dtype='i8')
     normalize = h5.create_dataset("normalize", (n,), dtype='i8')
