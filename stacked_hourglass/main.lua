@@ -73,12 +73,12 @@ for i = 1,nsamples do
     xlua.progress(i,nsamples)
 
     -- Display the result
-    if arg[1] == 'demo' then
-        preds_hm:mul(4) -- Change to input scale
-        local dispImg = drawOutput(inp, hm, preds_hm[1])
-        w = image.display{image=dispImg,win=w}
-        sys.sleep(3)
-    end
+    -- if arg[1] == 'demo' then
+    --     preds_hm:mul(4) -- Change to input scale
+    --     local dispImg = drawOutput(inp, hm, preds_hm[1])
+    --     w = image.display{image=dispImg,win=w}
+    --     sys.sleep(3)
+    -- end
 
     collectgarbage()
 end
@@ -93,7 +93,10 @@ elseif arg[1] == 'predict-test' then
     predFile:write('preds', preds)
     predFile:close()
 elseif arg[1] == 'demo' then
-    w.window:close()
+    local predFile = hdf5.open('preds/demo.h5', 'w')
+    predFile:write('preds', preds)
+    predFile:close()
+    -- w.window:close()
 end
 
 --------------------------------------------------------------------------------
