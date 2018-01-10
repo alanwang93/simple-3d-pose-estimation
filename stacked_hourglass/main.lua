@@ -96,6 +96,11 @@ elseif arg[1] == 'demo' then
     predFile:write('preds', preds)
     predFile:close()
     -- w.window:close()
+elseif arg[1] == 'mytest' then
+    local predFile = hdf5.open('preds/mytest.h5', 'w')
+    predFile:write('preds', preds)
+    predFile:write('images', a.images)
+    predFile:close()
 end
 
 --------------------------------------------------------------------------------
