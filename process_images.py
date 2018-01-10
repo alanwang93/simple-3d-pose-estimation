@@ -50,7 +50,6 @@ def main(args):
     visible = h5.create_dataset("visible", (n,16), dtype='f8')
 
     for i, f in enumerate(filenames):
-        print(type(np.string_(f)))
         imgname[i] = np.string_(f)
         index[i] = i
         scale[i] = 1.

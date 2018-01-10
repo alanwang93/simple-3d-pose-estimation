@@ -5,7 +5,6 @@
 function getTransform(center, scale, rot, res)
     local h = 200 * scale
     local t = torch.eye(3)
-
     -- Scaling
     t[1][1] = res / h
     t[2][2] = res / h
@@ -61,7 +60,6 @@ function crop(img, center, scale, rot, res)
     -- Crop function tailored to the needs of our system. Provide a center
     -- and scale value and the image will be cropped and resized to the output
     -- resolution determined by res. 'rot' will also rotate the image as needed.
-
     local ul = transform({1,1}, center, scale, 0, res, true)
     local br = transform({res,res}, center, scale, 0, res, true)
 

@@ -57,7 +57,12 @@ end
 -- Only 3 attributes are used: images, center, scale
 for i = 1,nsamples do
     -- Set up input image
-    local im = image.load('images/' .. a['images'][idxs[i]])
+    local im
+    if arg[1] == 'mytest' then
+	im = image.load('images/mytest/' .. a['images'][idxs[i]])
+    else
+        im = image.load('images/' .. a['images'][idxs[i]])
+    end
     local center = a['center'][idxs[i]]
     local scale = a['scale'][idxs[i]]
     local inp = crop(im, center, scale, 0, 256)
@@ -103,7 +108,6 @@ elseif arg[1] == 'demo' then
 elseif arg[1] == 'mytest' then
     local predFile = hdf5.open('preds/mytest.h5', 'w')
     predFile:write('preds', preds)
-    predFile:write('images', a.images)
     predFile:close()
 end
 
