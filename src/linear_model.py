@@ -41,6 +41,7 @@ class LinearModel(object):
                learning_rate,
                summaries_dir,
                predict_14=False,
+               n_context=0,
                dtype=tf.float32):
     """Creates the linear + relu model
 
@@ -70,8 +71,8 @@ class LinearModel(object):
     # There is also an option to predict only 14 joints, which makes our results
     # directly comparable to those in https://arxiv.org/pdf/1611.09010.pdf
     self.HUMAN_3D_SIZE = 14 * 3 if predict_14 else 16 * 3
-
-    self.input_size  = self.HUMAN_2D_SIZE
+    self.n_frames = n_context*2 + 1
+    self.input_size  = self.HUMAN_2D_SIZE * self.n_frames
     self.output_size = self.HUMAN_3D_SIZE
 
     self.isTraining = tf.placeholder(tf.bool,name="isTrainingflag")
@@ -83,6 +84,7 @@ class LinearModel(object):
 
     self.linear_size   = linear_size
     self.batch_size    = batch_size
+    self.n_context = n_context
     self.learning_rate = tf.Variable( float(learning_rate), trainable=False, dtype=dtype, name="learning_rate")
     self.global_step   = tf.Variable(0, trainable=False, name="global_step")
     decay_steps = 100000  # empirical
@@ -103,7 +105,7 @@ class LinearModel(object):
     with vs.variable_scope( "linear_model" ):
 
       # === First layer, brings dimensionality up to linear_size ===
-      w1 = tf.get_variable( name="w1", initializer=kaiming, shape=[self.HUMAN_2D_SIZE, linear_size], dtype=dtype )
+      w1 = tf.get_variable( name="w1", initializer=kaiming, shape=[self.input_size, linear_size], dtype=dtype )
       b1 = tf.get_variable( name="b1", initializer=kaiming, shape=[linear_size], dtype=dtype )
       w1 = tf.clip_by_norm(w1,1) if max_norm else w1
       y3 = tf.matmul( enc_in, w1 ) + b1
@@ -243,58 +245,3 @@ class LinearModel(object):
 
       outputs = session.run(output_feed, input_feed)
       return outputs[0], outputs[1], outputs[2]  # No gradient norm
-
-  def get_all_batches( self, data_x, data_y, camera_frame, training=True ):
-    """
-    Obtain a list of all the batches, randomly permutted
-    Args
-      data_x: dictionary with 2d inputs
-      data_y: dictionary with 3d expected outputs
-      camera_frame: whether the 3d data is in camera coordinates
-      training: True if this is a training batch. False otherwise.
-
-    Returns
-      encoder_inputs: list of 2d batches
-      decoder_outputs: list of 3d batches
-    """
-
-    # Figure out how many frames we have
-    n = 0
-    for key2d in data_x.keys():
-      n2d, _ = data_x[ key2d ].shape
-      n = n + n2d
-
-    encoder_inputs  = np.zeros((n, self.input_size), dtype=float)
-    decoder_outputs = np.zeros((n, self.output_size), dtype=float)
-
-    # Put all the data into big arrays
-    idx = 0
-    for key2d in data_x.keys():
-      (subj, b, fname) = key2d
-      # keys should be the same if 3d is in camera coordinates
-      key3d = key2d if (camera_frame) else (subj, b, '{0}.h5'.format(fname.split('.')[0]))
-      key3d = (subj, b, fname[:-3]) if fname.endswith('-sh') and camera_frame else key3d
-
-      n2d, _ = data_x[ key2d ].shape
-      encoder_inputs[idx:idx+n2d, :]  = data_x[ key2d ]
-      decoder_outputs[idx:idx+n2d, :] = data_y[ key3d ]
-      idx = idx + n2d
-
-
-    if training:
-      # Randomly permute everything
-      idx = np.random.permutation( n )
-      encoder_inputs  = encoder_inputs[idx, :]
-      decoder_outputs = decoder_outputs[idx, :]
-
-    # Make the number of examples a multiple of the batch size
-    n_extra  = n % self.batch_size
-    if n_extra > 0:  # Otherwise examples are already a multiple of batch size
-      encoder_inputs  = encoder_inputs[:-n_extra, :]
-      decoder_outputs = decoder_outputs[:-n_extra, :]
-
-    n_batches = n // self.batch_size
-    encoder_inputs  = np.split( encoder_inputs, n_batches )
-    decoder_outputs = np.split( decoder_outputs, n_batches )
-
-    return encoder_inputs, decoder_outputs

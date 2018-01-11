@@ -490,3 +490,79 @@ def postprocess_3d( poses_set ):
     poses_set[k] = poses
 
   return poses_set, root_positions
+
+def get_all_batches(data_x, data_y, camera_frame, training=True, n_context=0, \
+    new_dim=False, batch_size=64, predict_14=False):
+  """
+    Obtain a list of all the batches, randomly permutted
+    Args
+      data_x: dictionary with 2d inputs
+      data_y: dictionary with 3d expected outputs
+      camera_frame: whether the 3d data is in camera coordinates
+      training: True if this is a training batch. False otherwise.
+      n_context: the number of context frames before and after the key frame
+      new_dim: if n_context is not zero, and new_dim=True, then create a new dimension
+    Returns
+      encoder_inputs (n_batches, batch_size, F): list of 2d batches
+      decoder_outputs (n_batches, batch_size, F): list of 3d batches
+  """
+  # Figure out how many frames we have
+  n = 0
+  for key2d in data_x.keys():
+    n2d, _ = data_x[ key2d ].shape
+    n = n + n2d
+
+  n_frames = 2 * n_context + 1
+
+  original_inputs  = np.zeros((n, 16*2), dtype=float)
+  encoder_inputs  = np.zeros((n, 16*2), dtype=float)
+  if predict_14:
+      decoder_outputs = np.zeros((n, 14*3), dtype=float)
+  else:
+      decoder_outputs = np.zeros((n, 16*3), dtype=float)
+
+  # Put all the data into big arrays
+  idx = 0
+  for key2d in data_x.keys():
+    (subj, b, fname) = key2d
+    # keys should be the same if 3d is in camera coordinates
+    key3d = key2d if (camera_frame) else (subj, b, '{0}.h5'.format(fname.split('.')[0]))
+    key3d = (subj, b, fname[:-3]) if fname.endswith('-sh') and camera_frame else key3d
+
+    n2d, _ = data_x[ key2d ].shape
+    original_inputs[idx:idx+n2d, :]  = data_x[ key2d ]
+    decoder_outputs[idx:idx+n2d, :] = data_y[ key3d ]
+    idx = idx + n2d
+  encoder_inputs = original_inputs.copy()
+
+  if new_dim:
+    pass
+  else:
+    for i in range(1, n_context+1):
+      encoder_inputs_shift_right = np.concatenate((np.repeat(original_inputs[0,:].reshape(1,-1),\
+          i, axis=0), original_inputs[:-i,:]),axis=0)
+      encoder_inputs_shift_left = np.concatenate((original_inputs[i:,:],\
+          np.repeat(original_inputs[-1,:].reshape(1,-1), i, axis=0)),axis=0)
+      encoder_inputs = np.concatenate((encoder_inputs_shift_right,np.asarray(encoder_inputs),encoder_inputs_shift_left),axis=1)
+
+  if training:
+    # Randomly permute everything
+    idx = np.random.permutation( n )
+    encoder_inputs  = encoder_inputs[idx, :]
+    decoder_outputs = decoder_outputs[idx, :]
+
+  n = 6400
+  encoder_inputs  = encoder_inputs[:n]
+  decoder_outputs  = decoder_outputs[:n]
+
+  # Make the number of examples a multiple of the batch size
+  n_extra  = n % batch_size
+  if n_extra > 0:  # Otherwise examples are already a multiple of batch size
+    encoder_inputs  = encoder_inputs[:-n_extra, :]
+    decoder_outputs = decoder_outputs[:-n_extra, :]
+
+  n_batches = n // batch_size
+  encoder_inputs  = np.split( encoder_inputs, n_batches )
+  decoder_outputs = np.split( decoder_outputs, n_batches )
+
+  return encoder_inputs, decoder_outputs, original_inputs

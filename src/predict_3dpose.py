@@ -31,7 +31,7 @@ tf.app.flags.DEFINE_integer("epochs", 200, "How many epochs we should train for"
 tf.app.flags.DEFINE_boolean("camera_frame", False, "Convert 3d poses to camera coordinates")
 tf.app.flags.DEFINE_boolean("max_norm", False, "Apply maxnorm constraint to the weights")
 tf.app.flags.DEFINE_boolean("batch_norm", False, "Use batch_normalization")
-
+tf.app.flags.DEFINE_integer("n_context", 0, "Use contextual frames")
 # Data loading
 tf.app.flags.DEFINE_boolean("predict_14", False, "predict 14 joints")
 tf.app.flags.DEFINE_boolean("use_sh", False, "Use 2d pose predictions from StackedHourglass")
@@ -61,7 +61,7 @@ tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32
 
 FLAGS = tf.app.flags.FLAGS
 
-train_dir = os.path.join( FLAGS.train_dir,
+train_dir = os.path.join( FLAGS.train_dir, "-".join([
   FLAGS.action,
   'dropout_{0}'.format(FLAGS.dropout),
   'epochs_{0}'.format(FLAGS.epochs) if FLAGS.epochs > 0 else '',
@@ -74,7 +74,8 @@ train_dir = os.path.join( FLAGS.train_dir,
   'maxnorm' if FLAGS.max_norm else 'no_maxnorm',
   'batch_normalization' if FLAGS.batch_norm else 'no_batch_normalization',
   'use_stacked_hourglass' if FLAGS.use_sh else 'not_stacked_hourglass',
-  'predict_14' if FLAGS.predict_14 else 'predict_17')
+  'predict_14' if FLAGS.predict_14 else 'predict_17',
+  'n_context_{0}'.format(FLAGS.n_context)]))
 
 print( train_dir )
 summaries_dir = os.path.join( train_dir, "log" ) # Directory for TB summaries
@@ -107,6 +108,7 @@ def create_model( session, actions, batch_size ):
       FLAGS.learning_rate,
       summaries_dir,
       FLAGS.predict_14,
+      FLAGS.n_context,
       dtype=tf.float16 if FLAGS.use_fp16 else tf.float32)
 
   if FLAGS.load <= 0:
@@ -185,7 +187,8 @@ def train():
       current_epoch = current_epoch + 1
 
       # === Load training batches for one epoch ===
-      encoder_inputs, decoder_outputs = model.get_all_batches( train_set_2d, train_set_3d, FLAGS.camera_frame, training=True )
+      encoder_inputs, decoder_outputs, _ = data_utils.get_all_batches( train_set_2d, train_set_3d, FLAGS.camera_frame, training=True,\
+          n_context=FLAGS.n_context, new_dim=False, batch_size=FLAGS.batch_size )
       nbatches = len( encoder_inputs )
       print("There are {0} train batches".format( nbatches ))
       start_time, loss = time.time(), 0.
@@ -235,7 +238,8 @@ def train():
           # Get 2d and 3d testing data for this action
           action_test_set_2d = get_action_subset( test_set_2d, action )
           action_test_set_3d = get_action_subset( test_set_3d, action )
-          encoder_inputs, decoder_outputs = model.get_all_batches( action_test_set_2d, action_test_set_3d, FLAGS.camera_frame, training=False)
+          encoder_inputs, decoder_outputs, _ = data_utils.get_all_batches( action_test_set_2d, action_test_set_3d, FLAGS.camera_frame, training=False,\
+              n_context=FLAGS.n_context, new_dim=False, batch_size=FLAGS.batch_size)
 
           act_err, _, step_time, loss = evaluate_batches( sess, model,
             data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d,
@@ -253,7 +257,8 @@ def train():
       else:
 
         n_joints = 17 if not(FLAGS.predict_14) else 14
-        encoder_inputs, decoder_outputs = model.get_all_batches( test_set_2d, test_set_3d, FLAGS.camera_frame, training=False)
+        encoder_inputs, decoder_outputs, _ = data_utils.get_all_batches( test_set_2d, test_set_3d, FLAGS.camera_frame,\
+            training=False, n_context=FLAGS.n_context, new_dim=False, batch_size=FLAGS.batch_size)
 
         total_err, joint_err, step_time, loss = evaluate_batches( sess, model,
           data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d,
@@ -350,7 +355,7 @@ def evaluate_batches( sess, model,
     loss += step_loss
 
     # denormalize
-    enc_in  = data_utils.unNormalizeData( enc_in,  data_mean_2d, data_std_2d, dim_to_ignore_2d )
+    # enc_in  = data_utils.unNormalizeData( enc_in,  data_mean_2d, data_std_2d, dim_to_ignore_2d )
     dec_out = data_utils.unNormalizeData( dec_out, data_mean_3d, data_std_3d, dim_to_ignore_3d )
     poses3d = data_utils.unNormalizeData( poses3d, data_mean_3d, data_std_3d, dim_to_ignore_3d )
 
@@ -425,6 +430,7 @@ def sample():
     print("Model loaded")
 
     for key2d in test_set_2d.keys():
+      # TODO
 
       (subj, b, fname) = key2d
       print( "Subject: {}, action: {}, fname: {}".format(subj, b, fname) )
