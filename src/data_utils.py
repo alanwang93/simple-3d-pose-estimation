@@ -551,10 +551,6 @@ def get_all_batches(data_x, data_y, camera_frame, training=True, n_context=0, \
     encoder_inputs  = encoder_inputs[idx, :]
     decoder_outputs = decoder_outputs[idx, :]
 
-  n = 6400
-  encoder_inputs  = encoder_inputs[:n]
-  decoder_outputs  = decoder_outputs[:n]
-
   # Make the number of examples a multiple of the batch size
   n_extra  = n % batch_size
   if n_extra > 0:  # Otherwise examples are already a multiple of batch size
