@@ -53,15 +53,33 @@ tf.app.flags.DEFINE_string("train_dir", "experiments", "Training directory.")
 
 # Train or load
 tf.app.flags.DEFINE_boolean("sample", False, "Set to True for sampling.")
+tf.app.flags.DEFINE_boolean("test", False, "Set to True for testing.")
 tf.app.flags.DEFINE_boolean("use_cpu", False, "Whether to use the CPU")
 tf.app.flags.DEFINE_integer("load", 0, "Try to load a previous checkpoint.")
 
 # Misc
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
 
+tf.app.flags.DEFINE_boolean("smooth", False, "Set to True to smooth output.")
 FLAGS = tf.app.flags.FLAGS
 
-train_dir = os.path.join( FLAGS.train_dir, "-".join([
+# train_dir = os.path.join( FLAGS.train_dir, "-".join([
+#   FLAGS.action,
+#   'dropout_{0}'.format(FLAGS.dropout),
+#   'epochs_{0}'.format(FLAGS.epochs) if FLAGS.epochs > 0 else '',
+#   'lr_{0}'.format(FLAGS.learning_rate),
+#   'residual' if FLAGS.residual else 'not_residual',
+#   'depth_{0}'.format(FLAGS.num_layers),
+#   'linear_size{0}'.format(FLAGS.linear_size),
+#   'batch_size_{0}'.format(FLAGS.batch_size),
+#   'procrustes' if FLAGS.procrustes else 'no_procrustes',
+#   'maxnorm' if FLAGS.max_norm else 'no_maxnorm',
+#   'batch_normalization' if FLAGS.batch_norm else 'no_batch_normalization',
+#   'use_stacked_hourglass' if FLAGS.use_sh else 'not_stacked_hourglass',
+#   'predict_14' if FLAGS.predict_14 else 'predict_17',
+#   'n_context_{0}'.format(FLAGS.n_context)]))
+
+train_dir = os.path.join( FLAGS.train_dir,
   FLAGS.action,
   'dropout_{0}'.format(FLAGS.dropout),
   'epochs_{0}'.format(FLAGS.epochs) if FLAGS.epochs > 0 else '',
@@ -75,7 +93,22 @@ train_dir = os.path.join( FLAGS.train_dir, "-".join([
   'batch_normalization' if FLAGS.batch_norm else 'no_batch_normalization',
   'use_stacked_hourglass' if FLAGS.use_sh else 'not_stacked_hourglass',
   'predict_14' if FLAGS.predict_14 else 'predict_17',
-  'n_context_{0}'.format(FLAGS.n_context)]))
+  'n_context_{0}'.format(FLAGS.n_context))
+
+# train_dir = os.path.join( FLAGS.train_dir,
+#   FLAGS.action,
+#   'dropout_{0}'.format(FLAGS.dropout),
+#   'epochs_{0}'.format(FLAGS.epochs) if FLAGS.epochs > 0 else '',
+#   'lr_{0}'.format(FLAGS.learning_rate),
+#   'residual' if FLAGS.residual else 'not_residual',
+#   'depth_{0}'.format(FLAGS.num_layers),
+#   'linear_size{0}'.format(FLAGS.linear_size),
+#   'batch_size_{0}'.format(FLAGS.batch_size),
+#   'procrustes' if FLAGS.procrustes else 'no_procrustes',
+#   'maxnorm' if FLAGS.max_norm else 'no_maxnorm',
+#   'batch_normalization' if FLAGS.batch_norm else 'no_batch_normalization',
+#   'use_stacked_hourglass' if FLAGS.use_sh else 'not_stacked_hourglass',
+#   'predict_14' if FLAGS.predict_14 else 'predict_17')
 
 print( train_dir )
 summaries_dir = os.path.join( train_dir, "log" ) # Directory for TB summaries
@@ -310,7 +343,8 @@ def get_action_subset( poses_set, action ):
 def evaluate_batches( sess, model,
   data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d,
   data_mean_2d, data_std_2d, dim_to_use_2d, dim_to_ignore_2d,
-  current_step, encoder_inputs, decoder_outputs, current_epoch=0 ):
+  current_step, encoder_inputs, decoder_outputs, current_epoch=0,
+  test_set_2d=None ):
   """
   Generic method that evaluates performance of a list of batches.
   May be used to evaluate all actions or a single action.
@@ -344,6 +378,7 @@ def evaluate_batches( sess, model,
   # Loop through test examples
   all_dists, start_time, loss = [], time.time(), 0.
   log_every_n_batches = 100
+  poses3ds = []
   for i in range(nbatches):
 
     if current_epoch > 0 and (i+1) % log_every_n_batches == 0:
@@ -353,17 +388,23 @@ def evaluate_batches( sess, model,
     dp = 1.0 # dropout keep probability is always 1 at test time
     step_loss, loss_summary, poses3d = model.step( sess, enc_in, dec_out, dp, isTraining=False )
     loss += step_loss
-
+    poses3ds.append(poses3d)
+  if FLAGS.smooth:
+    n2ds = data_utils.get_n2d(test_set_2d)
+    poses3ds = smooth(n2ds, np.asarray(poses3ds), data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d)
+  for i in range(nbatches):
+    poses3d = poses3ds[i]
+    enc_in, dec_out = encoder_inputs[i], decoder_outputs[i]
     # denormalize
     # enc_in  = data_utils.unNormalizeData( enc_in,  data_mean_2d, data_std_2d, dim_to_ignore_2d )
     dec_out = data_utils.unNormalizeData( dec_out, data_mean_3d, data_std_3d, dim_to_ignore_3d )
-    poses3d = data_utils.unNormalizeData( poses3d, data_mean_3d, data_std_3d, dim_to_ignore_3d )
-
-    # Keep only the relevant dimensions
     dtu3d = np.hstack( (np.arange(3), dim_to_use_3d) ) if not(FLAGS.predict_14) else  dim_to_use_3d
-
     dec_out = dec_out[:, dtu3d]
-    poses3d = poses3d[:, dtu3d]
+    if not FLAGS.smooth: # smooth will unNormalize data
+      poses3d = data_utils.unNormalizeData( poses3d, data_mean_3d, data_std_3d, dim_to_ignore_3d )
+      # Keep only the relevant dimensions
+      poses3d = poses3d[:, dtu3d]
+
 
     assert dec_out.shape[0] == FLAGS.batch_size
     assert poses3d.shape[0] == FLAGS.batch_size
@@ -401,6 +442,150 @@ def evaluate_batches( sess, model,
 
   return total_err, joint_err, step_time, loss
 
+def smooth(n2ds,poses3d,
+       data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d):
+    # print(poses3d.shape) # (498, 64, 48)
+    n_joints = 17 if not(FLAGS.predict_14) else 14
+    n_batches = len( poses3d )
+    total_poses3d = np.asarray(poses3d[0])
+    for i in range(1,n_batches):
+        total_poses3d = np.concatenate((total_poses3d,np.asarray(poses3d[i])),axis=0)
+    dp = 1.0
+    # print(total_poses3d.shape)
+    total_poses3d = data_utils.unNormalizeData( total_poses3d, data_mean_3d, data_std_3d, dim_to_ignore_3d )
+    # print(total_poses3d.shape)
+    # Keep only the relevant dimensions
+    dtu3d = np.hstack( (np.arange(3), dim_to_use_3d) ) if not(FLAGS.predict_14) else  dim_to_use_3d
+    total_poses3d = total_poses3d[:, dtu3d]
+
+    # Smoothing
+    rate = 0.7
+    n = total_poses3d.shape[0]
+    n_lines,_ = total_poses3d.shape
+    indice = np.cumsum([0] + n2ds) #indice of first frames
+    smoothed_poses3d = []
+    for j in range(len(indice)-1):
+        if indice[j] != n-1:
+            smoothed_poses3d.append(total_poses3d[indice[j]] * rate + (1-rate) *total_poses3d[indice[j]+1])
+        else:
+            smoothed_poses3d.append(total_poses3d[indice[j]])
+        for i in range(indice[j]+1, indice[j+1]-1):
+            if i == n-1:
+                break;
+            smoothed_poses3d.append(total_poses3d[i-1]*((1-rate)/2.)
+                                +total_poses3d[i]*rate
+                                +total_poses3d[i+1]*((1-rate)/2.))
+        smoothed_poses3d.append( total_poses3d[i-1] * (1-rate) + total_poses3d[i]* rate)
+    smoothed_poses3d = np.asarray(smoothed_poses3d) # (31872, 51)
+    smoothed_poses3d  = np.split( smoothed_poses3d, n_batches )
+    return smoothed_poses3d
+
+
+def test():
+  """ Evaluate on test set """
+  actions = data_utils.define_actions( FLAGS.action )
+
+  number_of_actions = len( actions )
+
+  # Load camera parameters
+  SUBJECT_IDS = [1,5,6,7,8,9,11]
+  rcams = cameras.load_cameras(FLAGS.cameras_path, SUBJECT_IDS)
+
+  # Load 3d data and load (or create) 2d projections
+  train_set_3d, test_set_3d, data_mean_3d, data_std_3d, dim_to_ignore_3d, dim_to_use_3d, train_root_positions, test_root_positions = data_utils.read_3d_data(
+    actions, FLAGS.data_dir, FLAGS.camera_frame, rcams, FLAGS.predict_14 )
+
+  # Read stacked hourglass 2D predictions if use_sh, otherwise use groundtruth 2D projections
+  if FLAGS.use_sh:
+    train_set_2d, test_set_2d, data_mean_2d, data_std_2d, dim_to_ignore_2d, dim_to_use_2d = data_utils.read_2d_predictions(actions, FLAGS.data_dir)
+  else:
+    train_set_2d, test_set_2d, data_mean_2d, data_std_2d, dim_to_ignore_2d, dim_to_use_2d = data_utils.create_2d_data( actions, FLAGS.data_dir, rcams )
+  print( "done reading and normalizing data." )
+
+  # Avoid using the GPU if requested
+  device_count = {"GPU": 0} if FLAGS.use_cpu else {"GPU": 1}
+  with tf.Session(config=tf.ConfigProto(
+    device_count=device_count,
+    allow_soft_placement=True )) as sess:
+
+    # === Create the model ===
+    print("Creating %d bi-layers of %d units." % (FLAGS.num_layers, FLAGS.linear_size))
+    model = create_model( sess, actions, FLAGS.batch_size )
+    model.train_writer.add_graph( sess.graph )
+    print("Model created")
+
+    #=== This is the training loop ===
+    step_time, loss, val_loss = 0.0, 0.0, 0.0
+    current_step = 0 if FLAGS.load <= 0 else FLAGS.load + 1
+    previous_losses = []
+
+    step_time, loss = 0, 0
+    current_epoch = 0
+    log_every_n_batches = 100
+
+    for _ in xrange(1):
+      # === Testing after this epoch ===
+      isTraining = False
+      if FLAGS.evaluateActionWise:
+        print("{0:=^12} {1:=^6}".format("Action", "mm")) # line of 30 equal signs
+        cum_err = 0
+        for action in actions:
+
+          print("{0:<12} ".format(action), end="")
+          # Get 2d and 3d testing data for this action
+          action_test_set_2d = get_action_subset( test_set_2d, action )
+          action_test_set_3d = get_action_subset( test_set_3d, action )
+          encoder_inputs, decoder_outputs, _ = data_utils.get_all_batches( action_test_set_2d, action_test_set_3d, FLAGS.camera_frame, training=False,\
+              n_context=FLAGS.n_context, new_dim=False, batch_size=FLAGS.batch_size)
+
+          act_err, _, step_time, loss = evaluate_batches( sess, model,
+            data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d,
+            data_mean_2d, data_std_2d, dim_to_use_2d, dim_to_ignore_2d,
+            current_step, encoder_inputs, decoder_outputs, test_set_2d=action_test_set_2d )
+          cum_err = cum_err + act_err
+
+          print("{0:>6.2f}".format(act_err))
+        # summaries = sess.run( model.err_mm_summary, {model.err_mm: float(cum_err/float(len(actions)))} )
+        # model.test_writer.add_summary( summaries, current_step )
+        print("{0:<12} {1:>6.2f}".format("Average", cum_err/float(len(actions) )))
+        print("{0:=^19}".format(''))
+
+      else:
+        pass
+
+        # n_joints = 17 if not(FLAGS.predict_14) else 14
+        # encoder_inputs, decoder_outputs, _ = data_utils.get_all_batches( test_set_2d, test_set_3d, FLAGS.camera_frame,\
+        #     training=False, n_context=FLAGS.n_context, new_dim=False, batch_size=FLAGS.batch_size)
+        #
+        # total_err, joint_err, step_time, loss = evaluate_batches( sess, model,
+        #   data_mean_3d, data_std_3d, dim_to_use_3d, dim_to_ignore_3d,
+        #   data_mean_2d, data_std_2d, dim_to_use_2d, dim_to_ignore_2d,
+        #   current_step, encoder_inputs, decoder_outputs, current_epoch )
+        #
+        # print("=============================\n"
+        #       "Step-time (ms):      %.4f\n"
+        #       "Val loss avg:        %.4f\n"
+        #       "Val error avg (mm):  %.2f\n"
+        #       "=============================" % ( 1000*step_time, loss, total_err ))
+        #
+        # for i in range(n_joints):
+        #   # 6 spaces, right-aligned, 5 decimal places
+        #   print("Error in joint {0:02d} (mm): {1:>5.2f}".format(i+1, joint_err[i]))
+        # print("=============================")
+
+        # Log the error to tensorboard
+        # summaries = sess.run( model.err_mm_summary, {model.err_mm: total_err} )
+        # model.test_writer.add_summary( summaries, current_step )
+
+      # Save the model
+      # print( "Saving the model... ", end="" )
+      # start_time = time.time()
+      # model.saver.save(sess, os.path.join(train_dir, 'checkpoint'), global_step=current_step )
+      # print( "done in {0:.2f} ms".format(1000*(time.time() - start_time)) )
+
+      # Reset global time and loss
+      step_time, loss = 0, 0
+      sys.stdout.flush()
 
 def sample():
   """Get samples from a model and visualize them"""
@@ -457,7 +642,7 @@ def sample():
         _, _, poses3d = model.step(sess, enc_in[bidx], dec_out[bidx], dp, isTraining=False)
 
         # denormalize
-        enc_in[bidx]  = data_utils.unNormalizeData(  enc_in[bidx], data_mean_2d, data_std_2d, dim_to_ignore_2d )
+        enc_in[bidx]  = data_utils.unNormalizeData( enc_in[bidx], data_mean_2d, data_std_2d, dim_to_ignore_2d )
         dec_out[bidx] = data_utils.unNormalizeData( dec_out[bidx], data_mean_3d, data_std_3d, dim_to_ignore_3d )
         poses3d = data_utils.unNormalizeData( poses3d, data_mean_3d, data_std_3d, dim_to_ignore_3d )
         all_poses_3d.append( poses3d )
@@ -536,6 +721,8 @@ def sample():
 def main(_):
   if FLAGS.sample:
     sample()
+  elif FLAGS.test:
+    test()
   else:
     train()
 

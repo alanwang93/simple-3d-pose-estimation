@@ -562,3 +562,18 @@ def get_all_batches(data_x, data_y, camera_frame, training=True, n_context=0, \
   decoder_outputs = np.split( decoder_outputs, n_batches )
 
   return encoder_inputs, decoder_outputs, original_inputs
+
+def get_n2d(data_x):
+  """
+      Obtain a list of number of frames of each video
+      Args
+        data_x: dictionary with 2d inputs
+      Returns
+        n2ds: list of n2d
+  """
+  # Figure out how many frames we have
+  n2ds = []
+  for key2d in data_x.keys():
+    n2d, _ = data_x[ key2d ].shape
+    n2ds.append(n2d)
+  return n2ds
